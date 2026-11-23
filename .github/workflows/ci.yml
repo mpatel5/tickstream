@@ -1,0 +1,21 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: C++ build and tests
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DTICKSTREAM_BUILD_BENCH=OFF
+          cmake --build build -j
+          ctest --test-dir build --output-on-failure
+      - name: Python build and tests
+        run: |
+          pip install -e ".[test]"
+          pytest -q
