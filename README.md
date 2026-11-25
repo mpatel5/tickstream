@@ -72,6 +72,24 @@ python examples/pair_pipeline.py      # ~3 months of 5-min bars, cached in data/
 
 The script prints how many pairs would pass by chance. Testing ~200 pairs at 5% produces ~10 false positives, which is why the out-of-sample column matters more than the test statistic.
 
+### Results on real data
+
+47 large-cap stocks and ETFs, 5-minute bars from Alpaca's IEX feed, regular hours. Pairs are chosen on the first two-thirds of each period and traded on the last third.
+
+| period (formation → trading) | correlated | cointegrated at 5% | expected by chance | selected pairs, out of sample |
+|---|---:|---:|---:|---|
+| Aug 24–Oct 23 → Oct 26–Nov 24, 2026 | 37 | 1 | ~2 | GOOGL/GOOG: 6 trades, +0.46% at 1 bp/leg, −0.02% at 3 bp/leg |
+| Nov 24 2025–Jul 29 2026 → Jul 29–Nov 24 2026 | 49 | 2 | ~2 | SMH/SOXX: 13 trades, −0.95%; CVX/XOM: 6 trades, +3.13% |
+
+What this shows:
+
+- **The test passes about as many pairs as chance would.** Over a year, 2 of 49 correlated pairs passed at 5%, the number expected if none were really cointegrated. With this universe, bar size and method, there's no evidence of more than chance, and the out-of-sample split shows it: one selected pair made money and the other lost.
+- **Costs decide everything intraday.** GOOGL/GOOG, the one pair with an economic reason to stay linked (two share classes of one company), earned about 12 bp per round trip before costs. A round trip trades both legs twice, so the edge disappears at 3 bp per leg.
+- **Even "obvious" pairs drift.** GOOGL/GOOG passed over three months but not over the year, and SMH/SOXX (two semiconductor ETFs with different weightings) passed in formation and then lost money. A hedge ratio fitted on one period doesn't guarantee the next.
+- **One week of data overstates correlation.** A one-week screen found 238 pairs with correlation ≥ 0.7. Over three months there were 37.
+
+This matches the academic record: simple distance and cointegration pairs strategies on liquid U.S. stocks became much less profitable after the early 2000s (Do & Faff, *Does Simple Pairs Trading Still Work?*, Financial Analysts Journal, 2010). Next to try: a larger universe with more structural pairs (ETFs on the same index, ADRs vs local shares), rolling re-selection instead of one fixed split, and a cost model based on actual quoted spreads.
+
 ## Python benchmarks
 
 `python bench/py_bench.py` writes [`bench/py_results.md`](bench/py_results.md). On synthetic data:
