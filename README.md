@@ -11,6 +11,11 @@ Market data arrives as an unbounded stream. tickstream answers common questions 
 | `Reservoir` (Algorithm L) | Give me a uniform random sample of *k* ticks from the stream | *k* items |
 | `RunningStats` / `EwmStats` | Mean, variance and z-score of a price or spread, cumulative or decaying | O(1) |
 | `PairStats` | Rolling hedge ratio, spread and spread z-score for a pair of instruments | O(1) |
+| `KLL` (Python) | What are the 1st / 50th / 99th percentiles of trade size or returns? | O(k) |
+| `MisraGries` (Python) | Which symbols account for more than φ of all trades? | k counters |
+| `screen.screen` (Python) | Which of N symbols have correlation ≥ ρ with each other? | k floats per symbol |
+
+`tickstream.feeds` connects all of this to real market data from Alpaca (live and historical) or Yahoo Finance, and can record and replay it offline.
 
 On top of the core, `tickstream.pairs` runs a z-score mean-reversion backtest for a pair of instruments, using `PairStats` to generate the signals.
 
@@ -28,6 +33,46 @@ On top of the core, `tickstream.pairs` runs a z-score mean-reversion backtest fo
 | PairStats (EW beta + z-score) | 121.9 | < 1 KB |
 
 Over ~990K distinct keys, Count-Min overcounted by 215 on average, with a maximum of 484. Its guaranteed bound is εN = 1,000. Conservative update cut the average overcount roughly in half, to 105, in exchange for slower updates. HyperLogLog's error is typically under 1% at p = 14, which has a standard error of 0.81%.
+
+## Real market data
+
+```bash
+export ALPACA_API_KEY_ID=...  ALPACA_API_SECRET_KEY=...   # free at alpaca.markets
+python examples/screen_pairs.py --source alpaca --start 2026-11-17
+python examples/live_monitor.py AAPL MSFT NVDA AMD SPY QQQ  # live, market hours
+python examples/screen_pairs.py --source yahoo              # no key needed
+```
+
+Every feed emits the same `Trade` / `Bar` events (`tickstream.events`), so a consumer can't tell a live stream from a replay. That's what keeps a backtest honest.
+
+`screen_pairs.py` on 47 large-cap stocks and ETFs, 5-minute bars from Alpaca's IEX feed, Nov 17–24 2026 (462 regular-hours returns). The sketch cut 1,081 possible pairs to 592 candidates, and exact verification kept 238 with ρ ≥ 0.7. The top of the list:
+
+```
+GOOG   GOOGL  corr=0.983
+SMH    SOXX   corr=0.969
+QQQ    XLK    corr=0.966
+QQQ    SPY    corr=0.962
+MRVL   SOXX   corr=0.923
+XLE    XOM    corr=0.887
+BAC    WFC    corr=0.884
+```
+
+The first run used 1-minute bars including extended hours. GOOG/GOOGL didn't make the list, and BAC/XLF came out at 0.82 instead of 0.88. Two things cause that: thin, stale pre- and post-market prints, and the **Epps effect**, where correlations measured over very short intervals are biased toward zero because two stocks' last trades don't happen at the same instant. The screener now filters to regular hours and defaults to 5-minute bars (`--minutes 1` reproduces the effect).
+
+Correlation is only a first filter. A pair can move together minute to minute and still drift apart over weeks, so the candidates still need a cointegration test before they're worth trading.
+
+## Python benchmarks
+
+`python bench/py_bench.py` writes [`bench/py_results.md`](bench/py_results.md). On synthetic data:
+
+- **KLL:** 500K fat-tailed returns kept in 4.8 KB (vs 3.9 MB exact), max rank error 0.66% at k = 200.
+- **Misra-Gries:** 50 counters find every ticker with ≥ 1% of trades.
+- **Correlation screen:** 3,000 series × 390 returns, 100% recall of pairs with ρ ≥ 0.8 from a 0.77 MB sketch, vs 9.4 MB of raw windows.
+
+Two caveats:
+
+- **Tail quantiles are KLL's weak spot.** Its error is uniform in rank, so at the 1% tail a small rank error becomes a 2–8% error in VaR. A relative-error sketch (REQ, Cormode et al. 2021) fixes this.
+- **The screen isn't much faster than exact on one machine** (~1.2×), because BLAS makes the exact N² product fast. What it saves is memory: k floats per symbol instead of the whole window, which matters as the universe or window grows or the data is spread across machines.
 
 ## Design notes
 
@@ -47,12 +92,12 @@ ctest --test-dir build --output-on-failure
 ./build/bench
 
 # Python package
-pip install -e ".[test]"
+pip install -e ".[test,all]"   # all = Alpaca websocket + Yahoo feeds
 pytest
 python examples/pairs_demo.py
 ```
 
-Requires a C++20 compiler (GCC 10+ or Clang 12+), CMake 3.16+, and Python 3.9+ with NumPy.
+Requires a C++20 compiler (GCC 10+ or Clang 12+), CMake 3.16+, and Python 3.10+ with NumPy.
 
 ## Python usage
 
@@ -89,19 +134,25 @@ These are **synthetic** results that check the engine behaves sensibly. It finds
 ```
 include/tickstream/   header-only C++ core
 src/bindings.cpp      pybind11 module (tickstream._core)
-python/tickstream/    Python package: pairs backtest, synthetic data
+python/tickstream/    Python package: pairs backtest, KLL, Misra-Gries, correlation
+                      screen, synthetic data
+python/tickstream/feeds/  Alpaca, Yahoo and CSV replay feeds
+examples/             pairs demo, pair screener, live tape monitor
 tests/                C++ unit tests (no dependencies, run with ctest)
 python/tests/         pytest suite
-bench/                throughput and accuracy benchmark
+bench/                C++ (bench.cpp) and Python (py_bench.py) benchmarks
 ```
 
 ## Roadmap
 
-- [ ] Loaders for real historical bar and tick data
-- [ ] Screener that ranks candidate pairs by cointegration test statistics
+- [x] Loaders for real historical bar and tick data (Alpaca, Yahoo, CSV replay)
+- [x] Correlation pre-screen with random-projection sketches
+- [ ] Rank screened pairs by cointegration test statistics
 - [ ] Paper-trading loop on a live feed
 - [ ] Web dashboard for equity curves and spread z-scores
-- [ ] Streaming quantiles (KLL sketch) for spread and latency distributions
+- [x] Streaming quantiles (KLL sketch), in Python
+- [ ] Port KLL and Misra-Gries to the C++ core
+- [ ] REQ sketch for accurate tail quantiles (VaR)
 
 ## License
 

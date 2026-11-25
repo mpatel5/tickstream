@@ -8,15 +8,20 @@ version = "0.1.0"
 description = "Streaming sketches and pair statistics for market data, with a C++ core and Python bindings"
 readme = "README.md"
 authors = [{ name = "Mitesh Patel" }]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = ["numpy>=1.22"]
 
 [project.optional-dependencies]
-test = ["pytest>=7"]
+live = ["websockets>=12"]
+yahoo = ["yfinance>=0.2"]
+all = ["websockets>=12", "yfinance>=0.2"]
+test = ["pytest>=7", "websockets>=12"]
 
 [tool.setuptools]
 package-dir = { "" = "python" }
-packages = ["tickstream"]
+
+[tool.setuptools.packages.find]
+where = ["python"]
 
 [tool.pytest.ini_options]
 testpaths = ["python/tests"]
