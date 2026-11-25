@@ -100,3 +100,39 @@ def test_stream_auth_subscribe_and_events(monkeypatch):
     assert [e.price for e in out] == [230.0, 230.1]
     assert ws.sent[0] == {"action": "auth", "key": "k", "secret": "s"}
     assert ws.sent[1] == {"action": "subscribe", "trades": ["AAPL"]}
+
+
+def test_historical_bars_reports_progress():
+    pages = [{"bars": {"AAPL": [{"t": "2026-11-24T14:30:00Z", "o": 1, "h": 1, "l": 1, "c": 1, "v": 1}]},
+              "next_page_token": "p2"},
+             {"bars": {"AAPL": [{"t": "2026-11-24T14:31:00Z", "o": 1, "h": 1, "l": 1, "c": 1, "v": 1}]}}]
+    seen = []
+    it = iter(pages)
+    fetch = lambda url, h: next(it)
+    list(alpaca.historical_bars(["AAPL"], start="2026-11-24", key="k", secret="s",
+                                fetch=fetch, progress=lambda p, n: seen.append((p, n))))
+    assert seen == [(1, 1), (2, 2)]
+
+
+def test_http_retries_on_rate_limit(monkeypatch):
+    import io
+    import time
+    import urllib.error
+    import urllib.request
+
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+    attempts = []
+
+    class Resp(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def fake_urlopen(req, timeout):
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise urllib.error.HTTPError(req.full_url, 429, "Too Many Requests", {"Retry-After": "0"}, None)
+        return Resp(b'{"bars": {}}')
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    assert alpaca._http_get_json("https://example.test", {}) == {"bars": {}}
+    assert len(attempts) == 3

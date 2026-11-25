@@ -29,8 +29,12 @@ def load_bars(a):
         print(f"using cached {cache}")
         return list(replay.replay(cache))
     print(f"downloading {len(UNIVERSE)} symbols, {a.minutes}-min bars, {a.start} to {a.end} ...")
+    def progress(pages, n):
+        print(f"\r  page {pages}: {n:,} bars", end="", flush=True)
+
     bars = list(alpaca.historical_bars(UNIVERSE, start=a.start, end=a.end,
-                                       timeframe=f"{a.minutes}Min"))
+                                       timeframe=f"{a.minutes}Min", progress=progress))
+    print()
     cache.parent.mkdir(exist_ok=True)
     replay.write_csv(bars, cache)
     print(f"cached {len(bars):,} bars -> {cache}")

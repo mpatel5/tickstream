@@ -50,18 +50,40 @@ def parse_ws_message(msg: dict) -> Event | None:
 
 
 # -- historical ---------------------------------------------------------------
-def _http_get_json(url: str, headers: dict) -> dict:
-    req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.loads(r.read())
+def _http_get_json(url: str, headers: dict, retries: int = 5) -> dict:
+    """GET with retries on rate limits (429), server errors and timeouts."""
+    import time
+    import urllib.error
+
+    delay = 1.0
+    for attempt in range(retries + 1):
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            if e.code not in (429, 500, 502, 503, 504) or attempt == retries:
+                raise
+            wait = float(e.headers.get("Retry-After") or delay)
+        except (urllib.error.URLError, TimeoutError):
+            if attempt == retries:
+                raise
+            wait = delay
+        time.sleep(wait)
+        delay = min(delay * 2, 30.0)
+    raise RuntimeError("unreachable")
 
 
 def historical_bars(symbols: Sequence[str], start: str | datetime,
                     end: str | datetime | None = None, timeframe: str = "1Min",
                     feed: str = "iex", adjustment: str = "all",
                     key: str | None = None, secret: str | None = None,
-                    fetch: Callable[[str, dict], dict] = _http_get_json) -> Iterator[Bar]:
-    """Yield bars for all symbols in timestamp order (handles pagination)."""
+                    fetch: Callable[[str, dict], dict] = _http_get_json,
+                    progress: Callable[[int, int], None] | None = None) -> Iterator[Bar]:
+    """Yield bars for all symbols in timestamp order (handles pagination).
+
+    `progress(pages, bars_so_far)` is called after each page, if given.
+    """
     key, secret = _creds(key, secret)
     headers = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
     params = {"symbols": ",".join(symbols), "timeframe": timeframe, "feed": feed,
@@ -70,12 +92,15 @@ def historical_bars(symbols: Sequence[str], start: str | datetime,
     if end is not None:
         params["end"] = end.isoformat() if isinstance(end, datetime) else end
     bars: list[Bar] = []
-    token = None
+    token, pages = None, 0
     while True:
         q = dict(params, **({"page_token": token} if token else {}))
         data = fetch(f"{REST_URL}?{urllib.parse.urlencode(q)}", headers)
         for sym, rows in (data.get("bars") or {}).items():
             bars.extend(parse_bar(sym, b) for b in rows)
+        pages += 1
+        if progress:
+            progress(pages, len(bars))
         token = data.get("next_page_token")
         if not token:
             break
