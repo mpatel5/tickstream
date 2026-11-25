@@ -59,7 +59,18 @@ BAC    WFC    corr=0.884
 
 The first run used 1-minute bars including extended hours. GOOG/GOOGL didn't make the list, and BAC/XLF came out at 0.82 instead of 0.88. Two things cause that: thin, stale pre- and post-market prints, and the **Epps effect**, where correlations measured over very short intervals are biased toward zero because two stocks' last trades don't happen at the same instant. The screener now filters to regular hours and defaults to 5-minute bars (`--minutes 1` reproduces the effect).
 
-Correlation is only a first filter. A pair can move together minute to minute and still drift apart over weeks, so the candidates still need a cointegration test before they're worth trading.
+Correlation is only a first filter. A pair can move together minute to minute and still drift apart over weeks, so candidates go on to a cointegration test.
+
+## Pairs pipeline
+
+```bash
+python examples/pair_pipeline.py      # ~3 months of 5-min bars, cached in data/
+```
+
+1. **Formation window** (first two-thirds of the bars): correlation screen on returns, then an Engle-Granger cointegration test on log prices (`tickstream.coint`, NumPy only, checked against statsmodels to 6 significant figures). Pairs are ranked by ADF statistic, and each gets a hedge ratio and a mean-reversion half-life.
+2. **Trading window** (last third): the existing `pairs.backtest` runs on each selected pair. Its estimators warm up on the formation window but it only trades in the trading window, so the performance comes from data the selection never saw.
+
+The script prints how many pairs would pass by chance. Testing ~200 pairs at 5% produces ~10 false positives, which is why the out-of-sample column matters more than the test statistic.
 
 ## Python benchmarks
 
@@ -137,7 +148,9 @@ src/bindings.cpp      pybind11 module (tickstream._core)
 python/tickstream/    Python package: pairs backtest, KLL, Misra-Gries, correlation
                       screen, synthetic data
 python/tickstream/feeds/  Alpaca, Yahoo and CSV replay feeds
-examples/             pairs demo, pair screener, live tape monitor
+python/tickstream/coint.py, research.py, bars.py
+                      cointegration test, pairs pipeline, bar alignment
+examples/             pairs demo, pair screener, pairs pipeline, live tape monitor
 tests/                C++ unit tests (no dependencies, run with ctest)
 python/tests/         pytest suite
 bench/                C++ (bench.cpp) and Python (py_bench.py) benchmarks
@@ -147,7 +160,7 @@ bench/                C++ (bench.cpp) and Python (py_bench.py) benchmarks
 
 - [x] Loaders for real historical bar and tick data (Alpaca, Yahoo, CSV replay)
 - [x] Correlation pre-screen with random-projection sketches
-- [ ] Rank screened pairs by cointegration test statistics
+- [x] Rank screened pairs by cointegration (Engle-Granger) with out-of-sample backtest
 - [ ] Paper-trading loop on a live feed
 - [ ] Web dashboard for equity curves and spread z-scores
 - [x] Streaming quantiles (KLL sketch), in Python

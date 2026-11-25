@@ -15,7 +15,7 @@ dependencies = ["numpy>=1.22"]
 live = ["websockets>=12"]
 yahoo = ["yfinance>=0.2"]
 all = ["websockets>=12", "yfinance>=0.2"]
-test = ["pytest>=7", "websockets>=12"]
+test = ["pytest>=7", "websockets>=12", "statsmodels>=0.14"]  # statsmodels: reference check only
 
 [tool.setuptools]
 package-dir = { "" = "python" }
