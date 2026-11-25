@@ -90,6 +90,20 @@ What this shows:
 
 This matches the academic record: simple distance and cointegration pairs strategies on liquid U.S. stocks became much less profitable after the early 2000s (Do & Faff, *Does Simple Pairs Trading Still Work?*, Financial Analysts Journal, 2010). Next to try: a larger universe with more structural pairs (ETFs on the same index, ADRs vs local shares), rolling re-selection instead of one fixed split, and a cost model based on actual quoted spreads.
 
+## Paper trading
+
+```bash
+caffeinate -i python examples/paper_trader.py     # GOOGL/GOOG on your Alpaca paper account
+python examples/paper_report.py                    # P&L vs SPY so far
+```
+
+`tickstream.paper` runs the backtest's rules live, one 5-minute bar at a time: the C++ `PairStats` scores each bar against earlier bars only, the position opens beyond ±2σ, closes inside ±0.5σ and stops out beyond ±4σ, and the hedge ratio is frozen at entry. A test feeds the same prices to the live trader and to `pairs.backtest` and checks that they make identical decisions on every bar, so the research describes exactly what gets traded.
+
+- **Paper only.** `tickstream.broker` has the paper endpoint hard-coded, with no switch to a live account.
+- **Restartable.** Position, frozen hedge ratio and last bar are saved after every bar. On restart the trader re-warms its estimators from history and carries on.
+- **Logged.** Every bar goes to `data/paper_<pair>.csv` (prices, z, beta, position, orders, account equity, SPY).
+- **Sized in dollars.** $10K in one leg and β × $10K in the other, with a hard per-leg cap. A position that flips side is closed before it's reopened.
+
 ## Python benchmarks
 
 `python bench/py_bench.py` writes [`bench/py_results.md`](bench/py_results.md). On synthetic data:
@@ -168,7 +182,10 @@ python/tickstream/    Python package: pairs backtest, KLL, Misra-Gries, correlat
 python/tickstream/feeds/  Alpaca, Yahoo and CSV replay feeds
 python/tickstream/coint.py, research.py, bars.py
                       cointegration test, pairs pipeline, bar alignment
-examples/             pairs demo, pair screener, pairs pipeline, live tape monitor
+python/tickstream/paper.py, broker.py
+                      live pairs trader, Alpaca paper account client
+examples/             pairs demo, pair screener, pairs pipeline, live tape monitor,
+                      paper trader and report
 tests/                C++ unit tests (no dependencies, run with ctest)
 python/tests/         pytest suite
 bench/                C++ (bench.cpp) and Python (py_bench.py) benchmarks
@@ -179,7 +196,7 @@ bench/                C++ (bench.cpp) and Python (py_bench.py) benchmarks
 - [x] Loaders for real historical bar and tick data (Alpaca, Yahoo, CSV replay)
 - [x] Correlation pre-screen with random-projection sketches
 - [x] Rank screened pairs by cointegration (Engle-Granger) with out-of-sample backtest
-- [ ] Paper-trading loop on a live feed
+- [x] Paper-trading loop on Alpaca (5-minute bars, restartable, logged)
 - [ ] Web dashboard for equity curves and spread z-scores
 - [x] Streaming quantiles (KLL sketch), in Python
 - [ ] Port KLL and Misra-Gries to the C++ core
